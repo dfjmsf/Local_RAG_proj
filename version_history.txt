@@ -1,0 +1,3 @@
+修正了上传数据后数据会堆积在data/docs中的bug,现在文件管理更方便
+
+The bug where uploaded data would accumulate in data/docs has been fixed, making file management more convenient.
