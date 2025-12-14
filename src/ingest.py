@@ -112,6 +112,38 @@ def create_vector_db():
     except Exception as e:
         return False, f"向量库构建失败: {e}"
 
+def reset_vector_db():
+    """
+        独立功能：清空向量数据库，但不重新构建。
+        用于"清空所有"按钮。
+    """
+    try:
+        # 1. 初始化 Embedding (连接数据库需要它)
+        embedding_model = HuggingFaceEmbeddings(
+            model_name="all-MiniLM-L6-v2",
+            model_kwargs={"device": "cpu"}
+        )
+
+        # 2. 连接到数据库
+        print("正在连接数据库以进行重置...")
+        vectordb = Chroma(
+            persist_directory=DB_DIR,
+            embedding_function=embedding_model
+        )
+
+        # 3. 删除集合 (逻辑清空)
+        try:
+            vectordb.delete_collection()
+            print()
+            print("数据库集合已删除。")
+            return True, "数据库已重置为空。"
+        except  ValueError:
+            # 如果数据库本来就是空的，delete_collection 会报错，但这不算失败
+            return True, "数据库本来就是空的。"
+
+    except Exception as e:
+        return False, f"重置数据库失败: {e}"
+
 if __name__ == '__main__':
     success, msg = create_vector_db()
     print(msg)
