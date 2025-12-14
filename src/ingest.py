@@ -1,4 +1,6 @@
 import os
+import time
+import shutil
 from langchain_community.document_loaders import (
     PyPDFLoader,
     Docx2txtLoader,
@@ -43,12 +45,26 @@ def load_documents(source_dir):
 
         return all_documents
 def create_vector_db():
-    print(f"1.正在扫描并加载文档... (目录: {DOCS_DIR})")
+    # print(f"1.正在扫描并加载文档... (目录: {DOCS_DIR})")
+    # # --- 优化后的删除逻辑 ---
+    # if os.path.exists(DB_DIR):
+    #     try:
+    #         shutil.rmtree(DB_DIR)
+    #         print(f"已清理旧数据库: {DB_DIR}")
+    #     except Exception as e:
+    #         print(f"⚠️ 初次删除失败: {e}，正在重试...")
+    #         time.sleep(1)
+    #         try:
+    #             shutil.rmtree(DB_DIR)
+    #             print(f"重试删除成功！")
+    #         except Exception as e2:
+    #             # 如果还不行，那就真的是被占用了
+    #             return False, f"无法删除旧数据库，请确保没有其他程序（如其他 Python 窗口）在使用它。\n错误信息: {e2}"
+    #
     documents = load_documents(DOCS_DIR)
 
     if not documents:
-        print("❌ 没有加载到任何文档。")
-        return
+        return False, "data/docs 文件夹为空，或没有支持的文档格式。"
 
     print(f"   -> 共成功加载 {len(documents)} 个文档片段。")
 
@@ -66,23 +82,36 @@ def create_vector_db():
     print("3. 正在初始化向量模型 (首次运行会自动下载模型，请耐心等待)...")
     # 使用 sentence-transformers 的经典模型 'all-MiniLM-L6-v2'
     # 这个模型很小(约80MB)，速度快，效果好
-    embedding_model = HuggingFaceEmbeddings(
-        model_name="all-MiniLM-L6-v2",
-        model_kwargs={"device": "cpu"}  # 强制用 CPU，避免和 LM Studio 抢显存
-    )
+    try:
+        embedding_model = HuggingFaceEmbeddings(
+            model_name="all-MiniLM-L6-v2",
+            model_kwargs={"device": "cpu"}  # 强制用 CPU，避免和 LM Studio 抢显存
+        )
 
-    print("4. 正在将数据存入向量数据库 ChromaDB...")
-    # 这一步会做两件事：
-    # 1. 把所有文本片段扔给 embedding_model 变成向量
-    # 2. 把向量和原始文本存入本地文件夹 DB_DIR
-    vectordb = Chroma.from_documents(
-        documents=splits,
-        embedding=embedding_model,
-        persist_directory=DB_DIR
-    )
+        print("正在连接数据库...")
+        vectordb = Chroma(
+            persist_directory=DB_DIR,
+            embedding_function=embedding_model
+        )
 
-    print(f"✅ 成功！向量数据库已构建完成。存储位置: {DB_DIR}")
-    print(f"   共存储了 {len(splits)} 条向量数据。")
+        try:
+            print("正在清空旧数据...")
+            # 这里的逻辑是：删除整个集合，然后 LangChain 会在下面重新创建它
+            vectordb.delete_collection()
+        except Exception:
+            # 如果第一次运行，集合可能不存在，报错也没关系
+            pass
+
+        print("正在写入新数据...")
+        vectordb = Chroma.from_documents(
+            documents=splits,
+            embedding=embedding_model,
+            persist_directory=DB_DIR
+        )
+        return True, f"成功！共处理 {len(documents)} 份文档，生成 {len(splits)} 个向量片段。"
+    except Exception as e:
+        return False, f"向量库构建失败: {e}"
 
 if __name__ == '__main__':
-    create_vector_db()
+    success, msg = create_vector_db()
+    print(msg)

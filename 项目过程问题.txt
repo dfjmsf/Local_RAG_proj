@@ -75,3 +75,14 @@ Sentence-Transformers (用于生成向量，HuggingFace 依赖):sentence-transfo
         在test_llm.py中只有 OpenAI SDK在使用httpx在跑;
         而在rag_core.py中除了OpenAI SDK在使用httpx,还有ChromaDB库,为了连接数据库,它内部也引用了httpx,甚至可能引用了不同版本的httpx,二者出现冲突逻辑导致报错,7.5中的TypeError八成就是因为这个
         如果遇到莫名其妙的 SDK 网络报错（尤其是在国内网络环境下），不要死磕 SDK，试着手写一个 requests 请求
+
+8.更新上传文件构建知识库后在前端构建知识库时报错:清理旧数据库失败: [WinError 32] 另一个程序正在使用此文件，进程无法访问。
+    报错原因:
+        启动时：app.py 运行，调用了 rag = load_rag_system()。此时，Python 进程与 Chroma 数据库建立了连接，拿到了文件锁。
+        点击按钮时：你点击了“重建知识库”。
+        冲突：代码试图运行 create_vector_db -> shutil.rmtree() 去删除文件夹。
+        报错：Windows 跳出来说：“不行！app.py 这个程序还在读这个文件呢，你不能删！”
+    解决方法:
+        在“删库”之前，强制让 app.py “松手”(释放资源)                                                                                                               --------未解决
+        不再使用 shutil.rmtree.而是利用 ChromaDB 自带的 API 来清空数据                                                                                              ----成功解决
+    总结:运行时某些地方会调用db,直接删行不通,得用合法的方法,操作数据库

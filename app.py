@@ -1,6 +1,7 @@
 import streamlit as st
 import os
 import sys
+from src.ingest import create_vector_db
 
 # --- 关键：将 src 目录加入 Python 搜索路径 ---
 # 这样 app.py 才能找到 src 下的 modules
@@ -37,16 +38,64 @@ except Exception as e:
 
 # --- 侧边栏：功能区 ---
 with st.sidebar:
-    st.header("⚙️ 设置")
+    st.header("⚙️ 知识库管理")
     st.info(
         "当前模型: DeepSeek-R1-Distill-Qwen-14B\n"
         "运行模式: Local (LM Studio)\n"
         "检索策略: Top-3 混合检索"
     )
 
-    # 这里未来可以加“上传文件”功能，也就是调用 ingest.py
-    if st.button("重新构建知识库(Ingest)"):
-        st.warning("目前请在后台运行 ingest.py 手动更新数据。")
+    uploaded_files = st.file_uploader(
+        "当前支持上传的文档 (PDF/TXT/DOCX/MD/CSV)",
+        type = ["pdf", "txt", "docx", "md", "csv"],
+        accept_multiple_files=True,
+    )
+
+    # --- 处理上传逻辑 ---
+    if uploaded_files:
+        # 定义保存路径
+        save_dir = os.path.join(os.path.dirname(__file__), "data/docs")
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+
+        for uploaded_file in uploaded_files:
+            save_path = os.path.join(save_dir, uploaded_file.name)
+
+            with open(save_path, "wb") as f:
+                f.write(uploaded_file.getbuffer())
+
+        st.success(f"已上传 {len(uploaded_files)} 个文件到临时区。")
+
+    st.divider()
+
+    # --- 触发重建按钮 ---
+    if st.button("🔄 重建知识库 (Process)"):
+        with st.status("正在处理数据...", expanded= True) as status:
+
+            st.write("1.正在初始化...")
+
+            # 1. 清除 Streamlit 的缓存资源 (这一步会关闭连接)
+            st.cache_resource.clear()
+
+            st.write("2. 正在更新数据库 (逻辑清空模式)...")
+            success, msg = create_vector_db()
+
+            if success:
+                st.write("2. 正在加载新数据...")
+                st.write("3. 向量化完成!")
+
+                status.update(label="✅ 知识库构建成功！", state="complete", expanded=False)
+
+                st.success(msg)
+
+                import time
+                time.sleep(1)
+
+                st.rerun()
+            else:
+                status.update(label="❌ 构建失败", state="error")
+                st.error(msg)
+
 
 # --- 主聊天界面 ---
 
