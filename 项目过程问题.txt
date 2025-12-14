@@ -1,0 +1,77 @@
+1.(报错类)在运行pip install -r requirements.txt遇到了UnicodeDecodeError: 'gbk' codec can't decode byte 0xaf in position 57: illegal multibyte sequence错误
+    问题原因: Windows 编码问题;PyCharm 默认使用现代标准的 UTF-8 编码保存文件。但是，Windows 的命令行（CMD/PowerShell）默认使用的是 GBK 编码。
+             当 pip 试图读取文件时，它按照 GBK 的规则去解析文件里的中文注释（如“接口”、“用于”），结果发现 UTF-8 的编码格式和 GBK 对不上，于是就报错了。
+    解决办法:别在requirements.txt、.env这类文件里面用中文注释(也没必要)
+
+2.(报错类)写完test_llm.py后尝试运行发现连接不上本地的localhost:1234/v1,运行后显示❌ 连接失败: Error code: 502
+    尝试:1.将代码中的localhost改为127.0.0.1;                                                                                                                      ----未解决
+        2.修改 Model ID：从"deepseek-r1-distill-qwen-14b"改为 "local-model"                                                                                      ----未解决
+        3.怀疑模型跑不动,去看LM Studio 日志,发现test_llm.py启动后没有日志                                                                                              ----排除电脑性能问题,将矛头指向连接与网络方面
+        4.在代码中强制关闭代理(VPN),在引入openai组件前加入 -os.environ["NO_PROXY"] = "localhost,127.0.0.1"- 让Python去localhost 或 127.0.0.1 的路，直接走，不要经过 VPN     ----成功解决
+
+    总结:openai这个组件的网络请求走的是httpx,有点"娇贵",而且现在更新还很频繁,不太稳定
+
+3.(优化类)在ai生成答案时虽然开启了流式输出,但是还是几个字一跳,看起来有点卡;
+    理想情况:
+        一字一输出,流畅且美观;
+    问题原因:
+        1.llm生成内容时以token为单位,而非字,一个 Token 经常对应 1 到 2 个汉字
+        2.网络传输与缓冲:数据从 LM Studio 传到 Python，再从 Python 打印到 PyCharm 控制台，中间经过了多层缓冲（Buffer）。为了效率，有时候系统会攒够了一小撮数据才刷新一次屏幕。
+    解决方法:
+        在test_llm.py 的输出循环部分加一层for循环,将一串字拆成单个字符逐个打印,并用time.sleep方法让它更流畅                                                                    ----成功解决
+    可能的代价:
+        1.当ai生成内容快于for循环拆分时,可能会感觉生成得比较慢,但其实已经生成完了
+        2.当ai生成内容慢于for循环拆分时,还是会感觉有卡卡的感觉
+
+    总结:for循环拆分token能明显提高视觉流畅度,与可能出现的代价比起来可以接受;且可以通过调整time.sleep方法中的参数来实现流畅度与速度的完美平衡点
+
+4.(报错类)下载RAG 核心库:langchain-community;langchain-text-splitters | ChromaDB (向量数据库):chromadb |
+Sentence-Transformers (用于生成向量，HuggingFace 依赖):sentence-transformers | 处理非结构化文件需要的库:pypdf;markdown时大部分下载完成,但在最后报错:ERROR: THESE PACKAGES DO NOT MATCH THE HASHES FROM THE REQUIREMENTS FILE.
+    报错原因:
+        网络波动,下载的库太大了(1GB~2GB),下载文件的过程中可能会损坏,pip下载完后一校验，发现指纹（Hash）对不上，为了安全它就拒绝安装了.
+    尝试:
+        为pip install加上--no-cache-dir参数,强制重新下载并忽略缓存                                                                                                   ----成功解决
+
+    总结:
+        下载大容量的库时可以加上--no-cache-dir参数,或者分开下载
+
+5.(引用报错类)编写完成入库脚本(src/ingest.py)后发现对langchain_huggingface的引用无效
+    报错原因:
+        LangChain这个框架发展太快，在最近的版本更新中（0.2.x），它为了给主包“瘦身”，把很多第三方集成（比如 HuggingFace, OpenAI）从 langchain-community 里剥离出来，变成了独立的包
+    解决方法:
+        补装这个库
+        pip install langchain-huggingface
+
+    总结:
+        引用失败八成是更新导致包被独立或者被弃用,补下一般能解决
+
+6.(报错类)编写完成核心逻辑(src/rag_core.py)运行时出现MaxRetryError,且一直在不断重试
+    报错原因:
+        HuggingFaceEmbeddings库的一个默认行为: 每次启动时，喜欢访问一下 HuggingFace 官网，检查一下本地的模型是不是最新的，或者获取一些配置文件。
+        国内的网络对 HuggingFace 官网的访问容易超时导致程序崩溃
+    解决方法:
+        在 src/rag_core.py 的最开头（import 语句之前）加入一行环境变量设置:os.environ["HF_HUB_OFFLINE"] = "1" 告诉库：直接读本地缓存，绝对不要尝试连接 huggingface.co         ----成功解决
+    总结:
+        MaxRetryError一般与网络相关
+
+7.(连接类)在修复问题6后再次运行,发现代码卡在调用LLM步骤,except的异常显示:Connection error
+    报错原因:
+        可能为超时或上下文超限
+    解决方法:
+        1.为代码增加更长的超时等待时间timeout=60.0                                                                                                                   ----未解决
+        2.在LM Studio中给予模型更大的上下文(4096==>8000+)                                                                                                           ----未解决
+        3.引入httpx库,创建一个“无代理、长超时”的客户端传给 OpenAI                                                                                                       ----未解决(还产生了新的错误)
+            7.5(版本方法变更导致错误)修改创建客户端传给 OpenAI后出现TypeError: Client.init() got an unexpected keyword argument 'proxies'错误
+                原因:
+                    httpx库参数变动导致不接受 proxies 这个参数
+                解决方法:
+                    使用更简单、更通用、且兼容所有版本的参数: trust_env=False                                                                                                   ----成功解决,但未解决问题7的Connection error
+        4.加入更详细的except的异常处理,显示:APIConnectionError,怀疑是资源冲突或者配置超限,随后重新运行查看LM Studio的报错发现Log 里完全静止，没有任何新消息,说明 Python 没发出去，或者发到了错误的 IP
+          可能是依赖包版本导致的 httpx 兼容性问题,于是不再纠结于 OpenAI SDK 的网络配置,弃用openai,使用requests自己写一个最简单的发送函数                                             ----成功解决
+
+    总结:
+        OpenAI SDK的通信底层为: httpx (支持异步高并发,但容易受环境影响)
+        Requests的通信底层为: urllib3 (原始但可靠)
+        在test_llm.py中只有 OpenAI SDK在使用httpx在跑;
+        而在rag_core.py中除了OpenAI SDK在使用httpx,还有ChromaDB库,为了连接数据库,它内部也引用了httpx,甚至可能引用了不同版本的httpx,二者出现冲突逻辑导致报错,7.5中的TypeError八成就是因为这个
+        如果遇到莫名其妙的 SDK 网络报错（尤其是在国内网络环境下），不要死磕 SDK，试着手写一个 requests 请求
