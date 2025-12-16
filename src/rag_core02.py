@@ -7,10 +7,12 @@ os.environ["HF_HUB_OFFLINE"] = "1"
 
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
+from sentence_transformers import CrossEncoder
 
 # --- 2. 路径设置 ---
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_DIR = os.path.join(CURRENT_DIR, "../data/chroma_db")
+RERANK_MODEL_PATH = os.path.join(CURRENT_DIR, "../model_cache/bge-reranker-base")
 
 
 class RAGSystem:
@@ -31,27 +33,77 @@ class RAGSystem:
             persist_directory=DB_DIR,
             embedding_function=self.embedding_model
         )
+
+        # C. 初始化 Rerank 模型
+        print(f" -> 正在加载 Rerank 模型 ({RERANK_MODEL_PATH})...")
+        try:
+            # device="cpu" 保证兼容性，有 N 卡可以改成 "cuda"
+            self.reranker = CrossEncoder(RERANK_MODEL_PATH, device="cpu")
+            print(" -> Rerank 模型加载成功！")
+        except Exception as e:
+            print(f"❌ Rerank 模型加载失败: {e}")
+            print("   (将自动降级为仅使用向量检索)")
+            self.reranker = None
+
         print("✅ 系统初始化完成！")
 
-    def query(self, question):
-        print(f"\n🔍 正在检索：{question}")
+    def query(self, question, mode="flash"):
+        """
+        :param question: 用户问题
+        :param mode: 'flash' (极速) 或 'pro' (深度)
+        """
+        print(f"\n🔍 正在检索：{question} | 模式: {mode.upper()}")
 
-        # --- 步骤 1: 检索 (这里先恢复为 k=3，如果卡顿再改回 k=1) ---
-        docs = self.vector_db.similarity_search(question, k=3)
-        if not docs:
+        final_docs = []
+
+        # --- 步骤 1: 检索策略分流 ---
+        if mode == "pro" and self.reranker:
+            # === Pro 模式 (深度) ===
+            # 1. 扩大召回：先捞出 20 条 (Top-20)
+            initial_docs = self.vector_db.similarity_search(question, k=20)
+
+            if initial_docs:
+                # 2. 准备配对数据 [问题, 文档内容]
+                pairs = [[question, doc.page_content] for doc in initial_docs]
+
+                # 3.模型打分
+                print(" -> 正在进行 Rerank 重排序...")
+                scores = self.reranker.predict(pairs)
+
+                # 4. 排序截断 (Top-3)
+                # 将文档和分数打包，按分数降序排
+                scored_docs = sorted(zip(initial_docs, scores), key=lambda x: x[1], reverse=True)
+
+                print("\n📊 Rerank 打分结果 (Top-5):")
+                for doc, score in scored_docs[:5]:
+                    print(f"   [分: {score:.4f}] {doc.page_content[:30]}...")
+
+                # 取前 3 名的文档对象
+                final_docs = [doc for doc, score in scored_docs[:5]]
+            else:
+                print("⚠️ 初步检索未找到文档。")
+
+        else:
+            # === Flash 模式 (极速) ===
+            # 直接找 Top-3，不经过模型重算，速度最快
+            final_docs = self.vector_db.similarity_search(question, k= 5)
+
+
+        # --- 通用逻辑 ---
+        if not final_docs:
             print("⚠️ 未找到相关文档。")
-            return
+            return None
 
-        print("\n📚 检索到的参考资料：")
+        print("\n📚 最终参考资料：")
         context_text = ""
-        for i, doc in enumerate(docs):
+        for i, doc in enumerate(final_docs):
             content = doc.page_content.replace("\n", " ")
             print(f"[{i + 1}] {content[:50]}...")
             # 限制长度防止爆显存
             context_text += f"片段{i + 1}: {content[:500]}\n"
 
         # --- 步骤 2: 构建 Prompt ---
-        system_prompt = "你是一个专业助手。请根据【参考资料】回答问题。如果不知道就只根据【问题】来回答。"
+        system_prompt = "你是一个专业助手。请根据【参考资料】回答问题。如果不知道就说不知道。"
         user_prompt = f"【参考资料】:\n{context_text}\n\n【问题】:\n{question}"
 
         # --- 步骤 3: 调用 LLM (使用 requests 暴力直连) ---
@@ -97,10 +149,11 @@ class RAGSystem:
 if __name__ == "__main__":
     rag = RAGSystem()
 
-    test_question = input("请输入测试问题:")
-
     # 获取 response 对象
-    response = rag.query(test_question)
+    test_question = input("请输入测试问题:")
+    response = rag.query(test_question, mode="pro")  # 默认测试 Pro 模式
+
+
 
     if response:
         print("\n📢 回答：")

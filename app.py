@@ -13,12 +13,12 @@ from ingest import create_vector_db, reset_vector_db
 # --- 页面配置 ---
 st.set_page_config(
     page_title="RAG 知识库助手",
-    page_icon="🤖",
+    page_icon="",
     layout="wide"
 )
 
 # --- 标题与简介 ---
-st.title("🤖 本地化 RAG 个人知识库")
+st.title("本地化 RAG 个人知识库")
 st.markdown("基于 **DeepSeek-14B** + **ChromaDB** 构建的私有知识助手")
 
 # --- 初始化 RAG 系统 (利用 Streamlit 的缓存机制) ---
@@ -44,6 +44,20 @@ with st.sidebar:
         "运行模式: Local (LM Studio)\n"
         "检索策略: Top-3 混合检索"
     )
+
+    # 检索模式选择器
+    st.write("---")
+    st.write("🧠 **检索模式**")
+    search_model = st.radio(
+        "选择思考深度:",
+        ("Flash (极速)", "Pro (深度)"),
+        index=0,
+        help="Flash: 仅使用向量检索，速度快。\nPro: 引入 BGE 重排序模型，精准度高但稍慢。"
+    )
+    # 将中文选项映射回代码用的参数值
+    mode_param = "flash" if "Flash" in search_model else "pro"
+
+    st.divider()
 
     # 1. 定义保存路径
     save_dir = os.path.join(os.path.dirname(__file__), 'data/docs')
@@ -92,7 +106,7 @@ with st.sidebar:
 
     # --- 文件上传区 ---
     uploaded_file = st.file_uploader(
-        "上传新文档 (追加模式)",
+        "上传新文档(追加模式,文件大于20MB,CPU死给你看)",
         type=["pdf", "txt", "docx", "md", "csv"],
         accept_multiple_files=True,
     )
@@ -165,9 +179,9 @@ if prompt := st.chat_input("请输入你的问题（关于已上传的文档）.
                 rag = load_rag_system()
 
                 # 显示“正在思考”状态
-            with st.spinner("DeepSeek 正在阅读文档并思考..."):
-                # 调用在 rag_core.py 里写的 query 方法
-                response_obj = rag.query(prompt)
+            with st.spinner(f"DeepSeek ({mode_param} mode) 正在阅读文档并思考..."):
+                # 调用在 rag_core.py 里写的 query 方法并将 mode_param 传进去
+                response_obj = rag.query(prompt, mode=mode_param)
 
 
             if response_obj:

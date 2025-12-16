@@ -1,0 +1,80 @@
+# ==========================
+# 1. Python 核心垃圾文件
+# ==========================
+# 字节码文件 (Python 运行时自动生成)
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C 扩展
+*.so
+
+# ==========================
+# 2. 虚拟环境 (Virtual Environments)
+# ==========================
+# 常见的虚拟环境目录名
+env/
+venv/
+.venv/
+.env/
+venv.bak/
+
+# ==========================
+# 3. 敏感配置与安全 (最重要!)
+# ==========================
+# 环境变量文件 (绝对不能上传!)
+.env
+.env.local
+.env.*.local
+
+# 本地配置文件 (如果使用了 config.py 这种模式)
+config_local.py
+secrets.py
+
+# ==========================
+# 4. 发布与打包 (Distribution)
+# ==========================
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# ==========================
+# 5. 数据科学与 Jupyter Notebook
+# ==========================
+# Jupyter 的检查点
+.ipynb_checkpoints
+
+# 常见的大型数据文件 (防止不小心上传几百兆的数据集)
+*.csv
+*.xlsx
+*.sqlite3
+*.db
+
+# ==========================
+# 6. 编辑器与 IDE 配置
+# ==========================
+# PyCharm / IntelliJ IDEA
+.idea/
+
+# VS Code
+.vscode/
+
+# ==========================
+# 7. 操作系统文件
+# ==========================
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+ehthumbs.db
+
+model_cache/
+*.bin
+
+# 忽略 Chroma 向量数据库
+data/chroma_db/
+chroma_db/
+
+data/docs/
