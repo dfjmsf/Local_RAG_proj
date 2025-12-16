@@ -106,9 +106,11 @@ with st.sidebar:
 
     # --- 文件上传区 ---
     uploaded_file = st.file_uploader(
-        "上传新文档(追加模式,文件大于20MB,CPU死给你看)",
+        "上传新文档",
+        help="追加模式,文件大于20MB,CPU死给你看",
         type=["pdf", "txt", "docx", "md", "csv"],
         accept_multiple_files=True,
+
     )
 
     if uploaded_file:
@@ -185,29 +187,95 @@ if prompt := st.chat_input("请输入你的问题（关于已上传的文档）.
 
 
             if response_obj:
-                # --- 流式渲染核心逻辑 ---
+                # --- 流式渲染核心逻辑: 支持思考过程折叠 ---
                 # 对应 requests 的手动解析逻辑，Streamlit 会实时刷新界面
+
+                # 1. 预先创建 UI 占位符
+                # 创建一个默认折叠的扩展框，用于放思考过程
+                status_container = st.status("💭 DeepSeek 正在深度思考...", expanded=False, state="running")
+
+                thought_placeholder = status_container.empty()
+
+                # 创建主回答的占位符
+                answer_placeholder = st.empty()
+
+                # 2. 初始化变量
+                full_content = ""      # 原始完整内容（包含标签）
+                thought_content = ""   # 思考部分的内容
+                answer_content = ""    # 正文回答的内容
+                is_thinking = False    # 标记当前是否处于思考模式
+
                 import json
                 for line in response_obj.iter_lines():
                     if line:
                         decoded_line = line.decode("utf-8")
-                        if decoded_line.startswith("data:"):
+                        if decoded_line.startswith("data: "):
                             json_str = decoded_line[6:]
                             if json_str.strip() == "[DONE]":
                                 break
                             try:
                                 json_data = json.loads(json_str)
                                 content = json_data['choices'][0]['delta'].get('content', '')
+
                                 if content:
-                                    full_response += content
-                                    # 实时更新 UI
-                                    message_placeholder.markdown(full_response + "|")
-                            except Exception as e:
-                                print(e)
+                                    full_content += content
 
-                message_placeholder.markdown(full_response)
+                                    # --- 智能分流逻辑 ---
 
-                st.session_state.messages.append({"role": "assistant", "content": full_response})
+                                    # 检查是否包含思考结束标签
+                                    if "</think>" in full_content:
+                                        is_thinking = False
+
+                                        # 将完整内容按标签切分
+                                        parts = full_content.split("</think>")
+
+                                        # 第一部分是思考内容 (去掉开头的 <think>)
+                                        thought_part = parts[0].replace("<think>", "").strip()
+
+                                        # 第二部分: 正式回答
+                                        answer_part = parts[1]
+
+                                        # 更新 UI
+                                        thought_placeholder.markdown(thought_part)
+                                        answer_placeholder.markdown(answer_part + "|")
+
+                                        status_container.update(label= "深度思考过程", state="complete", expanded=False)
+
+                                        # 同步最终变量，方便存入历史记录
+                                        thought_content = thought_part
+                                        answer_content = answer_part
+
+                                    elif "<think>" in full_content:
+                                        # 如果有开始标签，但还没结束，说明正在思考中
+                                        is_thinking = True
+
+                                        # 提取思考内容 (去掉开头的 <think>)
+                                        current_thought = full_content.replace("<think>", "")
+                                        thought_placeholder.markdown(current_thought + "|")
+
+                                    else:
+                                        # 如果完全没有标签 (有的模型可能不输出 think 标签)，直接当做正文
+
+                                        answer_content += content
+                                        answer_placeholder.markdown(answer_content + "|")
+
+                                        # status_container.update(label="(本次回答无思考过程)", state="complete", expanded=False)
+                            except Exception:
+                                continue
+
+                # 4. 最终收尾
+                # 把光标去掉，显示最终结果
+                if thought_content:
+                    thought_placeholder.markdown(thought_content)
+
+                status_container.update(label="深度思考过程", state="complete", expanded=False)
+                answer_placeholder.markdown(answer_content)
+
+                # 5. [关键] 保存到历史记录
+                # 我们只保存“正文回答”到历史记录，防止历史记录太长，且思考过程通常不用于下一轮对话
+                # 如果你想连思考过程一起存，可以存 full_content
+                final_save_content = answer_content if answer_content else full_content
+                st.session_state.messages.append({"role": "assistant", "content": final_save_content})
 
             else:
                 st.error("连接超时或未找到答案，请检查 LM Studio。")

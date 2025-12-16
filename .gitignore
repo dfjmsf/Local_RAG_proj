@@ -78,3 +78,5 @@ data/chroma_db/
 chroma_db/
 
 data/docs/
+
+data/临时存储文件(要使用需将文件移入docs文件夹中)/
