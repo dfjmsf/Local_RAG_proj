@@ -51,6 +51,7 @@ class RAGSystem:
         """
         :param question: 用户问题
         :param mode: 'flash' (极速) 或 'pro' (深度)
+        :return: (response对象, 参考文档列表)
         """
         print(f"\n🔍 正在检索：{question} | 模式: {mode.upper()}")
 
@@ -92,7 +93,7 @@ class RAGSystem:
         # --- 通用逻辑 ---
         if not final_docs:
             print("⚠️ 未找到相关文档。")
-            return None
+            return None, []
 
         print("\n📚 最终参考资料：")
         context_text = ""
@@ -118,7 +119,7 @@ class RAGSystem:
                 {"role": "user", "content": user_prompt}
             ],
             "temperature": 0.1,
-            "stream": True  # 开启流式
+            "stream": True  # 开启流式输出
         }
 
         try:
@@ -137,13 +138,13 @@ class RAGSystem:
             if response.status_code != 200:
                 print(f"❌ 服务器返回错误: {response.status_code}")
                 print(response.text)
-                return None
+                return None, []
 
-            return response
+            return response, final_docs
 
         except Exception as e:
             print(f"\n❌ 连接失败: {e}")
-            return None
+            return None, []
 
 
 if __name__ == "__main__":

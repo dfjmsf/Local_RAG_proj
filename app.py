@@ -183,7 +183,7 @@ if prompt := st.chat_input("请输入你的问题（关于已上传的文档）.
                 # 显示“正在思考”状态
             with st.spinner(f"DeepSeek ({mode_param} mode) 正在阅读文档并思考..."):
                 # 调用在 rag_core.py 里写的 query 方法并将 mode_param 传进去
-                response_obj = rag.query(prompt, mode=mode_param)
+                response_obj, source_docs = rag.query(prompt, mode=mode_param)
 
 
             if response_obj:
@@ -263,6 +263,25 @@ if prompt := st.chat_input("请输入你的问题（关于已上传的文档）.
                             except Exception:
                                 continue
 
+                if source_docs:
+                    # 创建一个折叠框
+                    with st.expander("📚 参考来源 (Citations)", expanded=False):
+                        for i,doc in enumerate(source_docs):
+                            # 获取元数据 (文件名, 页码)
+                            source_file = os.path.basename(doc.metadata.get("source", "未知文件"))
+
+                            page_num = doc.metadata.get("page", 0) + 1
+
+                            content_preview = doc.page_content[:500].replace("\n", " ") + "..."
+
+                            # 渲染每一条来源
+                            st.markdown(f"""
+                            **来源 [{i+1}]**: '{source_file}' (第 {page_num} 页)
+                            > {content_preview}
+                            """)
+                            st.divider(
+
+                            )
                 # 4. 最终收尾
                 # 把光标去掉，显示最终结果
                 if thought_content:
