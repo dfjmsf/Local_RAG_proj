@@ -183,7 +183,11 @@ if prompt := st.chat_input("请输入你的问题（关于已上传的文档）.
                 # 显示“正在思考”状态
             with st.spinner(f"DeepSeek ({mode_param} mode) 正在阅读文档并思考..."):
                 # 调用在 rag_core.py 里写的 query 方法并将 mode_param 传进去
-                response_obj, source_docs = rag.query(prompt, mode=mode_param)
+                response_obj, source_docs = rag.query(
+                    prompt,
+                    history=st.session_state.messages[:-1],
+                    mode=mode_param
+                )
 
 
             if response_obj:
@@ -297,7 +301,7 @@ if prompt := st.chat_input("请输入你的问题（关于已上传的文档）.
                 st.session_state.messages.append({"role": "assistant", "content": final_save_content})
 
             else:
-                st.error("连接超时或未找到答案，请检查 LM Studio。")
+                st.error("连接超时或未在向量数据库中找到答案，请检查 LM Studio 或确认是否点击重建知识库。")
         except Exception as e:
             st.error(f"发生错误: {e}")
             st.info("💡 提示：如果是刚重建完知识库，请尝试刷新页面。")

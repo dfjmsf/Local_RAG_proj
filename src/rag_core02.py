@@ -47,10 +47,11 @@ class RAGSystem:
 
         print("✅ 系统初始化完成！")
 
-    def query(self, question, mode="flash"):
+    def query(self, question, history=[], mode="flash"):
         """
         :param question: 用户问题
         :param mode: 'flash' (极速) 或 'pro' (深度)
+        :param history: 前端传来的历史对话列表 (list of dict)
         :return: (response对象, 参考文档列表)
         """
         print(f"\n🔍 正在检索：{question} | 模式: {mode.upper()}")
@@ -103,9 +104,27 @@ class RAGSystem:
             # 限制长度防止爆显存
             context_text += f"片段{i + 1}: {content[:500]}\n"
 
-        # --- 步骤 2: 构建 Prompt ---
-        system_prompt = "你是一个专业助手。请根据【参考资料】回答问题。如果不知道就说不知道。"
-        user_prompt = f"【参考资料】:\n{context_text}\n\n【问题】:\n{question}"
+        # --- 步骤 2: 构建 Prompt 与 历史消息注入 ---
+        # 1. 定义系统提示词 (Persona)
+        system_prompt = "你是一个专业助手。请根据【参考资料】回答问题。如果不知道就说不知道。在回答之前请针对用户的问题与要求对用户进行简短的夸奖"
+
+        # 2. 初始化消息列表
+        messages_payload = [
+            {"role": "system", "content": system_prompt}
+        ]
+
+        # 3. 注入历史记忆 (Sliding Window)
+        # 只保留最近的 6 条消息 (即 3 轮对话)，防止上下文超限
+        # history 格式: [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
+        if history:
+            recent_history = history[-6:]
+            for msg in recent_history:
+                messages_payload.append(msg)
+            print(f" -> 已注入历史记忆: {len(recent_history)} 条消息")
+
+        # 4. 拼接当前最新的 User Prompt (包含 RAG 上下文)
+        current_user_prompt = f"【参考资料】:\n{context_text}\n\n【问题】:\n{question}"
+        messages_payload.append({"role": "user", "content": current_user_prompt})
 
         # --- 步骤 3: 调用 LLM (使用 requests 暴力直连) ---
         print("\n🤖 DeepSeek 正在思考...")
@@ -114,11 +133,8 @@ class RAGSystem:
         headers = {"Content-Type": "application/json"}
         data = {
             "model": "local-model",
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            "temperature": 0.1,
+            "messages": messages_payload,
+            "temperature": 0.7,
             "stream": True  # 开启流式输出
         }
 
