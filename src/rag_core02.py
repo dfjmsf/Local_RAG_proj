@@ -47,66 +47,203 @@ class RAGSystem:
 
         print("✅ 系统初始化完成！")
 
-    def query(self, question, history=[], mode="flash"):
+    def route_query(self, question):
+        """
+        判断用户意图：是需要检索(SEARCH)还是闲聊(CHAT)
+        """
+        print(f"🚦 正在进行意图路由分析: {question}")
+
+        # 极简 Prompt，强制模型只输出关键词
+        # 极简 Prompt，强制模型只输出关键词
+        system_prompt = (
+            "You are a routing system. Analyze the user's question. "
+            "If the question implies looking up specific documents, facts, or context, output 'SEARCH'. "
+            "If the question is a greeting, general knowledge, coding request, or translation, output 'CHAT'. "
+            "Output ONLY 'SEARCH' or 'CHAT'. Do not explain."
+        )
+
+        try:
+            url = "http://127.0.0.1:1234/v1/chat/completions"
+            headers = {"Content-Type": "application/json"}
+            data = {
+                "model" : "local-model",
+                "messages" : [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": question}
+                ],
+                "temperature" : 0.0,
+                "max_tokens" : 1000,
+                "stream" : False
+            }
+
+            response = requests.post(
+                url, headers = headers , json = data,
+                proxies = {"http" : None, "https" : None}, timeout=10
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                raw_content = result['choices'][0]['message']['content'].strip()
+
+                # [新增] 调试打印：看看模型到底输出了什么妖魔鬼怪
+                print(f"   [Debug] 路由原始输出: {raw_content}")
+
+                # [修改 2] 清洗 <think> 标签
+                # DeepSeek-R1 喜欢输出 <think>思考过程</think> SEARCH
+                final_intent = raw_content
+                if "</think>" in raw_content:
+                    # 只取 </think> 后面的部分
+                    final_intent = raw_content.split("</think>")[-1].strip()
+
+                final_intent = final_intent.upper()
+
+                # [修改 3] 判定逻辑
+                # 只要包含 CHAT 就认为是闲聊，否则默认 SEARCH (更安全的策略)
+                if "CHAT" in final_intent:
+                    return "CHAT"
+
+                return "SEARCH"
+
+            print(f"❌ 路由API报错: {response.status_code}")
+            return "SEARCH"  # 失败默认走搜索
+
+        except Exception as e:
+            print(f"❌ 路由失败: {e}，默认走 SEARCH")
+            return "SEARCH"
+
+    #  抽离出的 LLM 调用通用函数
+    def _call_llm(self, messages):
+        print("\n🤖 DeepSeek 正在思考...")
+        url = "http://127.0.0.1:1234/v1/chat/completions"
+        headers = {"Content-Type": "application/json"}
+        data = {
+            "model": "local-model",
+            "messages": messages,
+            "temperature": 0.3,
+            "stream": True
+        }
+        try:
+            response = requests.post(
+                url, headers=headers, json=data, stream=True,
+                proxies={"http": None, "https": None}, timeout=60
+            )
+            if response.status_code != 200:
+                print(f"❌ 服务器返回错误: {response.status_code}")
+                print(response.text)
+                return None
+            return response
+        except Exception as e:
+            print(f"❌ LLM 调用失败: {e}")
+            return None
+
+
+    def query(self, question, history=[], mode="flash", use_reranker=False):
         """
         :param question: 用户问题
         :param mode: 'flash' (极速) 或 'pro' (深度)
         :param history: 前端传来的历史对话列表 (list of dict)
         :return: (response对象, 参考文档列表)
         """
+
+        # 1. [新增] 执行路由判断
+        intent = self.route_query(question)
+        print(f"👉 路由结果: {intent}")
+
         print(f"\n🔍 正在检索：{question} | 模式: {mode.upper()}")
 
         final_docs = []
+        search_query = question
 
-        # --- 步骤 1: 检索策略分流 ---
-        if mode == "pro" and self.reranker:
-            # === Pro 模式 (深度) ===
-            # 1. 扩大召回：先捞出 20 条 (Top-20)
-            initial_docs = self.vector_db.similarity_search(question, k=20)
+        # === 分支 A: 闲聊模式 (CHAT) ===
+        if intent == "CHAT":
+            # 直接构建 Prompt，不查库
+            print("💬 进入闲聊模式，跳过检索...")
 
-            if initial_docs:
-                # 2. 准备配对数据 [问题, 文档内容]
-                pairs = [[question, doc.page_content] for doc in initial_docs]
+            # 使用更通用的 System Prompt
+            system_prompt = "你是一个乐于助人的 AI 助手。请直接回答用户的问题。"
+            messages_payload = [{"role": "system", "content": system_prompt}]
+            # 注入历史
+            if history:
+                messages_payload.extend(history[-6:])
+            messages_payload.append({"role": "user", "content": question})
 
-                # 3.模型打分
-                print(" -> 正在进行 Rerank 重排序...")
-                scores = self.reranker.predict(pairs)
+            # 直接调用 LLM
+            response = self._call_llm(messages_payload)
+            # 返回时 doc 列表为空，前端就不会显示“参考来源”
+            return response, [], intent  # 把 intent 也返回给前端用于展示
 
-                # 4. 排序截断 (Top-3)
-                # 将文档和分数打包，按分数降序排
-                scored_docs = sorted(zip(initial_docs, scores), key=lambda x: x[1], reverse=True)
+        # === 分支 B: 检索模式 (SEARCH) ===
+        else: # intent == "SEARCH"
+            print("🔍 进入检索模式...")
 
-                print("\n📊 Rerank 打分结果 (Top-5):")
-                for doc, score in scored_docs[:5]:
-                    print(f"   [分: {score:.4f}] {doc.page_content[:30]}...")
+            # --- 步骤 1: 检索策略分流 ---
+            if mode == "pro" and self.reranker:
+                # === Pro 模式 (深度) ===
+                # 1. 扩大召回：先捞出 20 条 (Top-20)
+                initial_docs = self.vector_db.similarity_search(question, k=20)
 
-                # 取前 3 名的文档对象
-                final_docs = [doc for doc, score in scored_docs[:5]]
+                if initial_docs:
+                    # 2. 准备配对数据 [问题, 文档内容]
+                    pairs = [[question, doc.page_content] for doc in initial_docs]
+
+                    # 3.模型打分
+                    print(" -> 正在进行 Rerank 重排序...")
+                    scores = self.reranker.predict(pairs)
+
+                    # 4. 排序截断 (Top-5)
+                    # 将文档和分数打包，按分数降序排
+                    scored_docs = sorted(zip(initial_docs, scores), key=lambda x: x[1], reverse=True)
+
+                    print("\n📊 Rerank 打分结果 (Top-5):")
+                    for doc, score in scored_docs[:5]:
+                        print(f"   [分: {score:.4f}] {doc.page_content[:30]}...")
+
+                    # 取前 5 名的文档对象
+                    final_docs = [doc for doc, score in scored_docs[:5]]
+                else:
+                    print("⚠️ 初步检索未找到文档。")
+
             else:
-                print("⚠️ 初步检索未找到文档。")
-
-        else:
-            # === Flash 模式 (极速) ===
-            # 直接找 Top-3，不经过模型重算，速度最快
-            final_docs = self.vector_db.similarity_search(question, k= 5)
+                # === Flash 模式 (极速) ===
+                # 直接找 Top-5，不经过模型重算，速度最快
+                final_docs = self.vector_db.similarity_search(question, k= 5)
 
 
-        # --- 通用逻辑 ---
-        if not final_docs:
-            print("⚠️ 未找到相关文档。")
-            return None, []
+            # --- 通用逻辑 ---
+            if not final_docs:
+                print("⚠️ 未找到相关文档。")
+                return None, []
 
-        print("\n📚 最终参考资料：")
-        context_text = ""
-        for i, doc in enumerate(final_docs):
-            content = doc.page_content.replace("\n", " ")
-            print(f"[{i + 1}] {content[:50]}...")
-            # 限制长度防止爆显存
-            context_text += f"片段{i + 1}: {content[:500]}\n"
+            print("\n📚 最终参考资料 (Parent-Child 还原)：")
+            context_text = ""
+            used_parents = set() # 用于去重，防止多个子块属于同一个父块，导致重复阅读
+
+            for i, doc in enumerate(final_docs):
+                # [关键] 优先尝试从 metadata 获取父文档内容
+                # 如果是旧数据库没有 parent_content，则回退使用 doc.page_content
+                content = doc.metadata.get("parent_content", doc.page_content)
+
+                # [去重逻辑]
+                # 计算内容的哈希值或直接用字符串判断，防止重复添加相同的父文档
+                # 这里简单用字符串长度+前100字作为简易指纹
+                content_fingerprint = f"{len(content)}_{content[:50]}"
+
+                if content_fingerprint in used_parents:
+                    print(f"   [跳过] 子块 {i+1} 指向已存在的父块...")
+                    continue
+
+                used_parents.add(content_fingerprint)
+
+                # 打印预览 (预览一下子块的来源)
+                source = os.path.basename(doc.metadata.get("source", "unknown"))
+                cleaned_content = content[:50].replace('\n', '')
+                print(f"[{len(used_parents)}] 来源: {source} | 内容预览: {cleaned_content}...")
+                # 拼接到 Context
+                context_text += f"片段{len(used_parents)}: {content}\n\n"
 
         # --- 步骤 2: 构建 Prompt 与 历史消息注入 ---
         # 1. 定义系统提示词 (Persona)
-        system_prompt = "你是一个专业助手。请根据【参考资料】回答问题。如果不知道就说不知道。在回答之前请针对用户的问题与要求对用户进行简短的夸奖"
+        system_prompt = "你是一个专业助手。请根据【参考资料】回答问题。如果不知道就说不知道。"
 
         # 2. 初始化消息列表
         messages_payload = [
@@ -127,41 +264,10 @@ class RAGSystem:
         messages_payload.append({"role": "user", "content": current_user_prompt})
 
         # --- 步骤 3: 调用 LLM (使用 requests 暴力直连) ---
-        print("\n🤖 DeepSeek 正在思考...")
+        response = self._call_llm(messages_payload)
 
-        url = "http://127.0.0.1:1234/v1/chat/completions"
-        headers = {"Content-Type": "application/json"}
-        data = {
-            "model": "local-model",
-            "messages": messages_payload,
-            "temperature": 0.7,
-            "stream": True  # 开启流式输出
-        }
-
-        try:
-            # proxies={"http": None, "https": None} 是核武器
-            # 它强制 requests 库完全忽略系统的任何代理设置
-            response = requests.post(
-                url,
-                headers=headers,
-                json=data,
-                stream=True,
-                proxies={"http": None, "https": None},
-                timeout=60
-            )
-
-            # 检查状态码
-            if response.status_code != 200:
-                print(f"❌ 服务器返回错误: {response.status_code}")
-                print(response.text)
-                return None, []
-
-            return response, final_docs
-
-        except Exception as e:
-            print(f"\n❌ 连接失败: {e}")
-            return None, []
-
+        # 返回 3 个值: 响应流, 文档列表, 意图
+        return response, final_docs, intent
 
 if __name__ == "__main__":
     rag = RAGSystem()

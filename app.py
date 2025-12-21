@@ -181,13 +181,19 @@ if prompt := st.chat_input("请输入你的问题（关于已上传的文档）.
                 rag = load_rag_system()
 
                 # 显示“正在思考”状态
-            with st.spinner(f"DeepSeek ({mode_param} mode) 正在阅读文档并思考..."):
+            with st.spinner(f"DeepSeek 正在判断意图并思考..."):
                 # 调用在 rag_core.py 里写的 query 方法并将 mode_param 传进去
-                response_obj, source_docs = rag.query(
+                response_obj, source_docs, intent = rag.query(
                     prompt,
                     history=st.session_state.messages[:-1],
                     mode=mode_param
                 )
+
+            # 显示路由结果提示
+            if intent == "CHAT":
+                st.caption("💬 **模式：通用闲聊** (未检索本地文档)")
+            else:
+                st.caption(f"🔍 **模式：知识库检索** ({mode_param.upper()})")
 
 
             if response_obj:

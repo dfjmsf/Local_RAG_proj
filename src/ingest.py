@@ -45,22 +45,7 @@ def load_documents(source_dir):
 
         return all_documents
 def create_vector_db():
-    # print(f"1.正在扫描并加载文档... (目录: {DOCS_DIR})")
-    # # --- 优化后的删除逻辑 ---
-    # if os.path.exists(DB_DIR):
-    #     try:
-    #         shutil.rmtree(DB_DIR)
-    #         print(f"已清理旧数据库: {DB_DIR}")
-    #     except Exception as e:
-    #         print(f"⚠️ 初次删除失败: {e}，正在重试...")
-    #         time.sleep(1)
-    #         try:
-    #             shutil.rmtree(DB_DIR)
-    #             print(f"重试删除成功！")
-    #         except Exception as e2:
-    #             # 如果还不行，那就真的是被占用了
-    #             return False, f"无法删除旧数据库，请确保没有其他程序（如其他 Python 窗口）在使用它。\n错误信息: {e2}"
-    #
+
     documents = load_documents(DOCS_DIR)
 
     if not documents:
@@ -71,15 +56,53 @@ def create_vector_db():
 
     print("2. 正在切分文本...")
 
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=500,   # chunk_size=500: 每块文本大约 500 个字符。太小了语义不全，太大了检索不准。
-        chunk_overlap=50  # chunk_overlap=50: 相邻两块文本有 50 字重叠，防止关键信息刚好被切断。
+    # A. 定义父切分器 (Parent Splitter) - 大块，用于给 AI 看
+    # 800 字左右通常包含一个完整的段落逻辑
+    parent_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=800,   # chunk_size=: 每块文本大约  个字符。太小了语义不全，太大了检索不准。
+        chunk_overlap=0  # chunk_overlap=: 相邻两块文本有  字重叠，防止关键信息刚好被切断。
     )
-    splits = text_splitter.split_documents(documents)
 
-    print(f"   -> 文档被切分成了 {len(splits)} 个片段 (Chunks)。")
+    # B. 定义子切分器 (Child Splitter) - 小块，用于生成向量检索
+    # 200 字左右语义最致密，检索最准
 
-    print("3. 正在初始化向量模型 (首次运行会自动下载模型，请耐心等待)...")
+    child_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=200,
+        chunk_overlap=50
+    )
+
+    print("2. 正在进行父子切分...")
+
+    # C. 执行切分流程
+    # 1. 先切出父文档
+    parent_docs = parent_splitter.split_documents(documents)
+
+    final_storage_docs = []  # 最终要存入数据库的文档列表
+
+    # 2. 遍历每个父文档，切分成子文档
+    from langchain_core.documents import Document   # 确保引入 Document 对象
+
+    for parent_doc in parent_docs:
+        # 获取父文档的内容
+        parent_content = parent_doc.page_content
+        # 获取父文档原有的 metadata (比如 source, page)
+        base_metadata = parent_doc.metadata.copy()
+
+        # 切分子文档
+        child_texts = child_splitter.split_text(parent_content)
+
+        for child_text in child_texts:
+            # [关键步骤] : 在子文档的 metadata 里存储父文档的内容
+            # 这样检索到子文档时，就能顺藤摸瓜找到父文档
+            new_metadata = base_metadata.copy()
+            new_metadata["parent_content"] = parent_content # <--- 存入父内容
+
+            # 创建新的子文档对象
+            child_doc = Document(page_content=child_text, metadata=new_metadata)
+            final_storage_docs.append(child_doc)
+
+    print(f"   -> 父文档数: {len(parent_docs)} | 子文档数 (实际入库): {len(final_storage_docs)}")
+
     # 使用 sentence-transformers 的经典模型 'all-MiniLM-L6-v2'
     # 这个模型很小(约80MB)，速度快，效果好
     try:
@@ -104,11 +127,11 @@ def create_vector_db():
 
         print("正在写入新数据...")
         vectordb = Chroma.from_documents(
-            documents=splits,
+            documents=final_storage_docs,
             embedding=embedding_model,
             persist_directory=DB_DIR
         )
-        return True, f"成功！共处理 {len(documents)} 份文档，生成 {len(splits)} 个向量片段。"
+        return True, f"成功！采用父子索引策略。生成 {len(final_storage_docs)} 个子向量片段。"
     except Exception as e:
         return False, f"向量库构建失败: {e}"
 
