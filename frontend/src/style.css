@@ -1,0 +1,9 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 这里可以写一些全局样式，比如让背景色柔和一点 */
+body {
+  margin: 0;
+  background-color: #5f6a75; /* 浅灰色背景 */
+}
