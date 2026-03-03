@@ -47,6 +47,33 @@ class RAGSystem:
 
         print("✅ 系统初始化完成！")
 
+    # [新增] 获取已索引的文件列表
+    def get_indexed_files(self):
+        """
+        查询 ChromaDB，返回当前数据库中所有唯一的 source 文件名 (纯文件名，不带路径)
+        """
+        try:
+            # 仅获取 metadatas，速度快
+            data = self.vector_db.get(include=['metadatas'])
+
+            if not data or not data['metadatas']:
+                return set()
+
+            indexed_files = set()
+            for meta in data['metadatas']:
+                if meta and 'source' in meta:
+                    # [关键修复] 无论数据库里存的是绝对路径还是相对路径
+                    # 这里统一只提取文件名，比如 "C:/data/docs/a.txt" -> "a.txt"
+                    # 这样才能和 os.listdir 的结果进行比对
+                    full_path = meta['source']
+                    file_name = os.path.basename(full_path)
+                    indexed_files.add(file_name)
+
+            return indexed_files
+        except Exception as e:
+            print(f"❌ 获取索引文件列表失败: {e}")
+            return set()
+
     def route_query(self, question):
         """
         判断用户意图：是需要检索(SEARCH)还是闲聊(CHAT)

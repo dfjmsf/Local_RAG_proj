@@ -43,7 +43,7 @@ def load_documents(source_dir):
             else:
                 pass
 
-        return all_documents
+    return all_documents
 def create_vector_db():
 
     documents = load_documents(DOCS_DIR)
