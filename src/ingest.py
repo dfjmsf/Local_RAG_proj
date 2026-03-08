@@ -77,10 +77,12 @@ def create_vector_db():
     # 1. 先切出父文档
     parent_docs = parent_splitter.split_documents(documents)
 
-    final_storage_docs = []  # 最终要存入数据库的文档列表
+    final_storage_docs = []  # 最终要存入数据库的文档列表（子文档）
+    parent_map = {}  # parent_id -> parent_content 映射表
 
     # 2. 遍历每个父文档，切分成子文档
     from langchain_core.documents import Document   # 确保引入 Document 对象
+    import hashlib
 
     for parent_doc in parent_docs:
         # 获取父文档的内容
@@ -88,14 +90,18 @@ def create_vector_db():
         # 获取父文档原有的 metadata (比如 source, page)
         base_metadata = parent_doc.metadata.copy()
 
+        # [修复] 用哈希生成轻量 parent_id，替代存储完整父内容
+        parent_id = hashlib.md5(parent_content.encode('utf-8')).hexdigest()[:12]
+        parent_map[parent_id] = parent_content
+
         # 切分子文档
         child_texts = child_splitter.split_text(parent_content)
 
         for child_text in child_texts:
-            # [关键步骤] : 在子文档的 metadata 里存储父文档的内容
-            # 这样检索到子文档时，就能顺藤摸瓜找到父文档
+            # [修复] 只存 parent_id (12字符) 替代存完整父内容 (800字)
+            # 大幅减少 metadata 体积，避免数据库膨胀
             new_metadata = base_metadata.copy()
-            new_metadata["parent_content"] = parent_content # <--- 存入父内容
+            new_metadata["parent_id"] = parent_id
 
             # 创建新的子文档对象
             child_doc = Document(page_content=child_text, metadata=new_metadata)
@@ -131,6 +137,14 @@ def create_vector_db():
             embedding=embedding_model,
             persist_directory=DB_DIR
         )
+
+        # [修复] 将 parent_map 保存为 JSON，供检索时还原父文档内容
+        import json
+        parent_map_path = os.path.join(DB_DIR, "parent_map.json")
+        with open(parent_map_path, "w", encoding="utf-8") as f:
+            json.dump(parent_map, f, ensure_ascii=False)
+        print(f"   -> 父文档映射已保存: {len(parent_map)} 条")
+
         return True, f"成功！采用父子索引策略。生成 {len(final_storage_docs)} 个子向量片段。"
     except Exception as e:
         return False, f"向量库构建失败: {e}"

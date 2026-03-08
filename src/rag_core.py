@@ -48,7 +48,7 @@ class RAGSystem:
             trust_env=False,
             timeout=120.0  # 设置极长的超时时间 (120秒)
         )
-        self.client = OpenAI(base_url="https://127.0.0.1:1234/v1",
+        self.client = OpenAI(base_url="http://127.0.0.1:1234/v1",
                              api_key="lm-studio",
                              http_client=http_client
                              )

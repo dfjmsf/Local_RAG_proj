@@ -13,6 +13,7 @@ from sentence_transformers import CrossEncoder
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_DIR = os.path.join(CURRENT_DIR, "../data/chroma_db")
 RERANK_MODEL_PATH = os.path.join(CURRENT_DIR, "../model_cache/bge-reranker-base")
+PARENT_MAP_PATH = os.path.join(DB_DIR, "parent_map.json")
 
 
 class RAGSystem:
@@ -44,6 +45,17 @@ class RAGSystem:
             print(f"❌ Rerank 模型加载失败: {e}")
             print("   (将自动降级为仅使用向量检索)")
             self.reranker = None
+
+        # D. 加载父文档映射表 (用于通过 parent_id 还原父文档内容)
+        self.parent_map = {}
+        if os.path.exists(PARENT_MAP_PATH):
+            try:
+                import json as _json
+                with open(PARENT_MAP_PATH, "r", encoding="utf-8") as f:
+                    self.parent_map = _json.load(f)
+                print(f" -> 已加载父文档映射: {len(self.parent_map)} 条")
+            except Exception as e:
+                print(f"⚠️ 加载父文档映射失败: {e}")
 
         print("✅ 系统初始化完成！")
 
@@ -239,16 +251,21 @@ class RAGSystem:
             # --- 通用逻辑 ---
             if not final_docs:
                 print("⚠️ 未找到相关文档。")
-                return None, []
+                return None, [], intent
 
             print("\n📚 最终参考资料 (Parent-Child 还原)：")
             context_text = ""
             used_parents = set() # 用于去重，防止多个子块属于同一个父块，导致重复阅读
 
             for i, doc in enumerate(final_docs):
-                # [关键] 优先尝试从 metadata 获取父文档内容
-                # 如果是旧数据库没有 parent_content，则回退使用 doc.page_content
-                content = doc.metadata.get("parent_content", doc.page_content)
+                # [关键] 通过 parent_id 从映射表还原父文档内容
+                # 兼容旧数据：如果没有 parent_id，回退使用子文档自身的内容
+                parent_id = doc.metadata.get("parent_id", "")
+                if parent_id and parent_id in self.parent_map:
+                    content = self.parent_map[parent_id]
+                else:
+                    # 旧版数据库可能存了 parent_content，做兼容
+                    content = doc.metadata.get("parent_content", doc.page_content)
 
                 # [去重逻辑]
                 # 计算内容的哈希值或直接用字符串判断，防止重复添加相同的父文档

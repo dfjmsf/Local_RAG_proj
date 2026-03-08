@@ -14,7 +14,7 @@ export function useKnowledgeBase() {
     // [修改] 获取文件列表并分类
     const fetchFiles = async () => {
         try {
-            const res = await fetch('http://127.0.0.1:8000/api/files')
+            const res = await fetch('/api/files')
             if (res.ok) {
                 const data = await res.json()
                 indexedFiles.value = data.indexed || []
@@ -35,7 +35,7 @@ export function useKnowledgeBase() {
         })
 
         try {
-            const res = await fetch('http://127.0.0.1:8000/api/upload', {
+            const res = await fetch('/api/upload', {
                 method: 'POST',
                 body: formData
             })
@@ -56,7 +56,7 @@ export function useKnowledgeBase() {
     const rebuildDb = async () => {
         isRebuilding.value = true
         try {
-            const res = await fetch('http://127.0.0.1:8000/api/rebuild', { method: 'POST' })
+            const res = await fetch('/api/rebuild', { method: 'POST' })
             const data = await res.json()
             if (res.ok && data.status === 'success') {
                 message.success(data.message)
@@ -75,7 +75,7 @@ export function useKnowledgeBase() {
         // 二次确认通常在 UI 层做，这里直接执行逻辑
         isRebuilding.value = true
         try {
-            const res = await fetch('http://127.0.0.1:8000/api/reset', { method: 'POST' })
+            const res = await fetch('/api/reset', { method: 'POST' })
             if (res.ok) {
                 message.success("已恢复出厂设置")
                 await fetchFiles() // 刷新，两个列表都应该变空

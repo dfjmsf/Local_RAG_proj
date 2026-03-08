@@ -72,9 +72,7 @@ const handleSelectSession = async (id: string) => {
 const handleNewChat = async () => {
   const newId = await createSession()
   if (newId) {
-    selectSession(newId)
     clearChat()
-    await fetchSessions()
   }
 }
 
@@ -94,6 +92,14 @@ const handleSend = async () => {
   if (currentSessionId.value) {
     await sendMessage(q, mode.value, currentSessionId.value)
     fetchSessions()
+  }
+}
+
+// Enter 发送，Shift+Enter 换行
+const handleKeydown = (e: KeyboardEvent) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault()
+    handleSend()
   }
 }
 
@@ -299,7 +305,7 @@ const customRequest = async ({ file, onFinish, onError }: any) => {
               type="textarea"
               :autosize="{ minRows: 1, maxRows: 6 }"
               placeholder="请输入问题 (Enter 发送, Shift+Enter 换行)..."
-              @keydown.enter.prevent="handleSend"
+              @keydown="handleKeydown"
               class="shadow-sm !rounded-2xl !py-3 !pl-4 !pr-14 bg-gray-50 focus-within:!bg-white focus-within:!shadow-md transition-all text-base"
               size="large"
             />

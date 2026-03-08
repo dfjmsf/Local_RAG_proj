@@ -68,8 +68,8 @@ export function useChat() {
             const reader = response.body.getReader()
             const decoder = new TextDecoder()
 
-            let isThinking = false
-            let buffer = ''
+            let rawBuffer = ''  // [修复] 累积全部原始输出，避免标签跨 chunk
+            let buffer = ''     // NDJSON 行拼接缓冲
 
             while (true) {
                 const { done, value } = await reader.read()
@@ -89,11 +89,22 @@ export function useChat() {
                         else if (json.type === 'sources') aiMessage.value.sources = json.data
                         else if (json.type === 'content') {
                             const text = json.data
-                            if (text.includes('<think>')) { isThinking = true; continue }
-                            if (text.includes('</think>')) { isThinking = false; continue }
+                            // [修复] 累积到 rawBuffer，通过全局状态判断标签
+                            rawBuffer += text
 
-                            if (isThinking) aiMessage.value.thought = (aiMessage.value.thought || "") + text
-                            else aiMessage.value.content += text
+                            if (rawBuffer.includes('</think>')) {
+                                // 标签已闭合：提取思考和正文
+                                const parts = rawBuffer.split('</think>')
+                                aiMessage.value.thought = parts[0].replace('<think>', '')
+                                aiMessage.value.content = parts.slice(1).join('')
+                            } else if (rawBuffer.includes('<think>')) {
+                                // 标签未闭合：全部是思考内容
+                                aiMessage.value.thought = rawBuffer.replace('<think>', '')
+                                aiMessage.value.content = ''
+                            } else {
+                                // 无标签：全部是正文
+                                aiMessage.value.content = rawBuffer
+                            }
                         }
                         else if (json.type === 'error') aiMessage.value.content += `\n[Error: ${json.data}]`
                     } catch (e) { }

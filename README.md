@@ -1,146 +1,221 @@
 # Local RAG Knowledge Assistant (本地化个人知识库助手)
 
-![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)
-![Streamlit](https://img.shields.io/badge/Streamlit-1.30%2B-FF4B4B?logo=streamlit&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.11-blue?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.100%2B-009688?logo=fastapi&logoColor=white)
+![Vue3](https://img.shields.io/badge/Vue-3-4FC08D?logo=vue.js&logoColor=white)
 ![LangChain](https://img.shields.io/badge/LangChain-Community-green?logo=langchain&logoColor=white)
 ![ChromaDB](https://img.shields.io/badge/VectorDB-Chroma-orange)
 ![DeepSeek](https://img.shields.io/badge/Model-DeepSeek--R1-purple)
 
 **Local RAG Knowledge Assistant** 是一个基于 **DeepSeek-R1** 大模型与 **ChromaDB** 向量数据库构建的**完全本地化**个人知识库系统。
 
-它允许用户上传私有文档（PDF, DOCX, TXT, MD, CSV），自动构建向量索引，并通过自然语言与文档进行对话。**数据不出本地，隐私绝对安全。**
+上传私有文档（PDF, DOCX, TXT, MD, CSV），自动构建向量索引，通过自然语言与文档进行对话。**数据不出本地，隐私绝对安全。**
 
 ---
 
-## ✨ 核心功能 (Key Features)
+## ✨ 核心功能
 
-*   **🔒 100% 本地化运行**：依托 LM Studio 运行 DeepSeek 模型，所有推理与存储均在本地完成，无数据泄露风险。
-*   **📚 多格式支持**：支持 **PDF**, **Word (.docx)**, **Markdown**, **TXT**, **CSV** 等多种格式文档的解析与入库。
-*   **🧠 智能 RAG 引擎**：
-    *   使用 `HuggingFace (all-MiniLM-L6-v2)` 进行高效 CPU 向量化。
-    *   基于 `ChromaDB` 实现持久化存储与语义检索。
-*   **🖥️ 全功能交互界面**：
-    *   基于 **Streamlit** 搭建的现代化 UI。
-    *   **可视化文件管理**：查看当前已入库的文件列表。
-    *   **流式对话**：像打字机一样实时输出 AI 的思考与回答。
-*   **🛡️ 健壮的工程设计**：
-    *   内置 **“恢复出厂设置”** 功能，一键清空文件与数据库。
-    *   自动处理 Windows 文件锁冲突与资源释放。
-    *   底层使用 `requests` 强力直连，自动绕过系统代理干扰。
+- **🔒 100% 本地化运行** — 依托 LM Studio 运行 DeepSeek 模型，所有推理与存储均在本地完成
+- **📚 多格式文档** — 支持 PDF, Word (.docx), Markdown, TXT, CSV 等格式的解析与入库
+- **🧠 智能 RAG 引擎**
+  - 父子文档索引策略（`Parent-Child Chunking`），提升检索上下文完整度
+  - `Flash` 模式：纯向量检索，速度优先
+  - `Pro` 模式：向量检索 + `bge-reranker-base` 精排，精度优先
+- **🎯 意图路由** — 自动判断用户输入是知识检索还是闲聊，分别处理
+- **💬 多轮会话** — SQLite 持久化存储会话历史，支持新建/切换/删除对话
+- **⚡ 流式输出** — 实时展示 AI 的思考过程（`<think>` 标签）和最终回答
+- **🖥️ 双前端**
+  - **Vue3 + Naive UI**：现代化 Web 界面（推荐）
+  - **Streamlit**：轻量级 Python 界面
 
 ---
 
-## 🛠️ 技术栈 (Tech Stack)
+## 🛠️ 技术栈
 
-| 组件 | 技术选型 | 说明 |
+| 层级 | 技术选型 | 说明 |
 | :--- | :--- | :--- |
-| **LLM Host** | **LM Studio** | 用于本地加载 DeepSeek-R1-14B 模型 |
-| **Frontend** | **Streamlit** | 极速构建 Python Web 交互界面 |
-| **Orchestration** | **LangChain** | 文档加载 (Loaders) 与 切分 (Splitters) |
-| **Vector DB** | **ChromaDB** | 轻量级本地向量数据库 (无需安装 Server) |
-| **Embedding** | **Sentence-Transformers** | `all-MiniLM-L6-v2` (本地 CPU 运行) |
-| **Network** | **Requests** | 替代 OpenAI SDK 底层，解决本地代理冲突 |
+| **LLM** | **LM Studio** + DeepSeek-R1 | 本地大模型推理服务 (端口 1234) |
+| **后端 API** | **FastAPI** + Uvicorn | RESTful API，流式响应，异步桥接 |
+| **前端 (推荐)** | **Vue 3** + Vite + Naive UI | 现代化单页应用，支持 Markdown 渲染 |
+| **前端 (备选)** | **Streamlit** | 轻量级 Python Web 界面 |
+| **RAG 引擎** | **LangChain** + Requests | 文档加载/切分 + 手写 LLM 直连（绕过代理） |
+| **向量数据库** | **ChromaDB** | 轻量级本地向量库，无需 Server |
+| **Embedding** | **all-MiniLM-L6-v2** | Sentence-Transformers (CPU) |
+| **Reranker** | **bge-reranker-base** | Pro 模式精排 (可选) |
+| **会话存储** | **SQLite** | 对话历史持久化 |
 
 ---
 
-## 🚀 快速开始 (Quick Start)
+## 🏗️ 系统架构
 
-### 1. 环境准备
-
-确保你已安装 **Python 3.10 - 3.11**。
-
-```bash
-# 1. 克隆或下载本项目
-git clone https://github.com/your-username/local-rag-assistant.git
-cd local-rag-assistant
-
-# 2. 创建虚拟环境 (推荐)
-python -m venv .venv
-# Windows 激活:
-.venv\Scripts\activate
-# Mac/Linux 激活:
-source .venv/bin/activate
-
-# 3. 安装依赖
-pip install -r requirements.txt
+```text
+┌─────────────────────────────────────────────────────┐
+│                    用户浏览器                         │
+│  ┌───────────────┐         ┌─────────────────────┐  │
+│  │ Vue3 + Vite   │   或    │    Streamlit UI     │  │
+│  │ (localhost:5173)│        │  (localhost:8501)    │  │
+│  └───────┬───────┘         └─────────┬───────────┘  │
+└──────────┼───────────────────────────┼──────────────┘
+           │ /api/*                    │ 直接调用
+           ▼                           ▼
+┌─────────────────────────────────────────────────────┐
+│         FastAPI 后端 (server.py :8000)                │
+│  ┌──────────┐ ┌──────────┐ ┌──────────────────────┐ │
+│  │ 会话管理  │ │ 文件管理  │ │   流式聊天端点       │ │
+│  └────┬─────┘ └────┬─────┘ └────────┬─────────────┘ │
+└───────┼────────────┼────────────────┼───────────────┘
+        │            │                │
+        ▼            ▼                ▼
+┌────────────┐ ┌──────────┐ ┌─────────────────────────┐
+│  SQLite    │ │ data/    │ │  RAG Engine (rag_core02) │
+│ (chat_     │ │  docs/   │ │  ┌─────────────────────┐ │
+│  history   │ │          │ │  │ 1. 意图路由 (CHAT/   │ │
+│  .db)      │ │          │ │  │    SEARCH)           │ │
+└────────────┘ └────┬─────┘ │  │ 2. 向量检索          │ │
+                    │       │  │ 3. Reranker 精排     │ │
+                    ▼       │  │ 4. Prompt 构建       │ │
+              ┌──────────┐  │  │ 5. LLM 流式调用     │ │
+              │ ingest.py│  │  └──────────┬──────────┘ │
+              │ 文档入库  │  └─────────────┼───────────┘
+              └────┬─────┘                │
+                   ▼                      ▼
+              ┌──────────┐         ┌─────────────┐
+              │ ChromaDB │         │  LM Studio  │
+              │ 向量数据库 │         │  :1234/v1   │
+              └──────────┘         └─────────────┘
 ```
 
-### 2. 配置 LM Studio (关键！)
-
-本项目依赖 **LM Studio** 提供的大模型 API 服务。
-
-1.  下载并安装 [LM Studio](https://lmstudio.ai/)。
-2.  在搜索栏搜索并下载模型：`DeepSeek-R1-Distill-Qwen-14B` (推荐) 或 `7B` 版本。
-3.  点击左侧 **Local Server (<->)** 图标。
-4.  **重要设置**：
-    *   加载模型。
-    *   确保 Server Port 为 `1234`。
-    *   开启 **Cross-Origin-Resource-Sharing (CORS)**。
-    *   点击绿色按钮 **Start Server**。
-
-### 3. 启动应用
-
-在项目根目录下运行：
-
-```bash
-streamlit run app.py
-```
-
-浏览器将自动打开 `http://localhost:8501`。
-
 ---
 
-## 📖 使用指南 (User Guide)
-
-1.  **上传知识**：
-    *   在左侧侧边栏，点击 **"Browse files"** 上传你的文档。
-    *   点击 **"🔄 重建知识库"** 按钮。
-    *   观察进度条，等待显示 "✅ 知识库构建成功"。
-2.  **开始对话**：
-    *   在右侧聊天框输入问题，例如：“这份合同的违约金是多少？”
-    *   AI 将检索相关片段并回答。
-3.  **管理知识库**：
-    *   展开 **"查看当前文件列表"** 可查看已入库文档。
-    *   点击 **"🗑️ 恢复出厂设置"** 可一键清空所有数据（慎用）。
-
----
-
-## 📂 项目结构 (Structure)
+## 📂 项目结构
 
 ```text
 Local_RAG_Assistant/
-├── app.py               # 前端主入口 (Streamlit)
-├── requirements.txt     # 项目依赖
+├── server.py                # FastAPI 后端 (API 入口)
+├── app.py                   # Streamlit 前端 (备选)
+├── requirements.txt         # Python 依赖
+├── download_models.py       # Reranker 模型下载脚本
+│
 ├── src/
-│   ├── __init__.py
-│   ├── ingest.py        # 数据工程 (ETL、入库、清空逻辑)
-│   └── rag_core.py      # 核心 RAG 引擎 (检索、Prompt构建、LLM调用)
-├── data/
-│   ├── docs/            # [自动生成] 存放上传的原始文档
-│   └── chroma_db/       # [自动生成] 向量数据库文件
+│   ├── rag_core02.py        # RAG 引擎 (意图路由/检索/Rerank/LLM)
+│   ├── ingest.py            # 文档加载/切分/入库 (父子索引)
+│   └── database.py          # SQLite 会话管理
+│
+├── frontend/                # Vue3 前端
+│   ├── src/
+│   │   ├── components/
+│   │   │   └── ChatLayout.vue       # 主界面
+│   │   ├── composables/
+│   │   │   ├── useChat.ts           # 聊天逻辑
+│   │   │   ├── useChatSessions.ts   # 会话管理
+│   │   │   └── useKnowledgeBase.ts  # 知识库操作
+│   │   └── types/chat.ts            # TS 类型定义
+│   ├── package.json
+│   └── vite.config.ts               # Vite 配置 (API 代理)
+│
+├── data/                    # [自动生成]
+│   ├── docs/                # 上传的原始文档
+│   └── chroma_db/           # 向量数据库 + parent_map.json
+│
+└── model_cache/             # [自动生成] Reranker 模型缓存
 ```
 
 ---
 
-## 🔧 常见问题 (Troubleshooting)
+## 🚀 快速开始
 
-**Q: 点击“重建”时报错 `WinError 32`？**
-> **A:** 这是 Windows 文件锁问题。目前的版本已修复此问题（通过逻辑清空而非物理删除）。如果依然遇到，请尝试刷新页面或重启 `streamlit` 服务。
+### 1. 环境准备
 
-**Q: 为什么上传大文件（如 50MB CSV）会卡死？**
-> **A:** 目前 Embedding 运行在 CPU 上。对于超大文件，建议先手动切分成小文件上传，或在代码中开启 GPU 加速（需 NVIDIA 显卡）。
+> ⚠️ **推荐 Python 3.11**。3.14 存在 Pydantic v1 兼容性问题。
 
-**Q: 报错 `Connection error`？**
-> **A:** 请检查 LM Studio 的 Server 是否已启动（绿色 Start 按钮）。
+```bash
+# 克隆项目
+git clone https://github.com/your-username/local-rag-assistant.git
+cd local-rag-assistant
+
+# 创建虚拟环境 (Windows 指定 3.11)
+py -3.11 -m venv .venv
+.venv\Scripts\activate
+
+# 安装 Python 依赖
+pip install -r requirements.txt
+
+# 安装前端依赖
+cd frontend
+npm install
+cd ..
+```
+
+### 2. 配置 LM Studio
+
+1. 下载并安装 [LM Studio](https://lmstudio.ai/)
+2. 搜索并下载模型：`DeepSeek-R1-Distill-Qwen-14B`（推荐）或 `7B` 版本
+3. 点击左侧 **Local Server (↔)** 图标
+4. 重要设置：
+   - 加载模型
+   - 确保 Server Port 为 **`1234`**
+   - 开启 **CORS**
+   - 点击 **Start Server**
+
+### 3. 下载 Reranker 模型（可选，Pro 模式需要）
+
+```bash
+.venv\Scripts\python.exe download_models.py
+```
+
+### 4. 启动
+
+**终端 1 — 后端：**
+
+```bash
+.venv\Scripts\python.exe server.py
+```
+
+**终端 2 — 前端（Vue）：**
+
+```bash
+cd frontend
+npm run dev
+```
+
+打开浏览器访问 `http://localhost:5173`。
 
 ---
 
-## 🗓️ 未来规划 (Roadmap)
+## 📖 使用指南
 
-*   [ ] **GPU 加速支持**：为 Embedding 环节添加 CUDA 支持。
-*   [ ] **表格深度解析**：引入 `LlamaParse` 优化复杂 PDF 表格的识别。
-*   [ ] **多轮对话记忆**：让 AI 记住上下文，支持追问。
-*   [ ] **混合检索 (Hybrid Search)**：引入 BM25 关键词检索提升召回率。
+1. **上传知识** — 在左侧侧边栏上传文档（PDF/DOCX/TXT/MD/CSV），点击 **"构建知识库"**
+2. **选择模式** — `Flash`（快速向量检索）或 `Pro`（+ Reranker 精排）
+3. **开始对话** — 输入问题，AI 自动判断是否需要检索知识库
+4. **会话管理** — 新建/切换/删除对话，历史自动保存
+5. **恢复出厂** — "重置" 一键清空所有文件与数据库（慎用）
+
+---
+
+## 🔧 常见问题
+
+**Q: Python 3.14 报 Pydantic 兼容性错误？**
+> 使用 `py -3.11 -m venv .venv` 创建 Python 3.11 虚拟环境即可解决。
+
+**Q: 点击"重建"时报错 `WinError 32`？**
+> Windows 文件锁问题，当前版本已修复（通过 ChromaDB API 逻辑清空，而非物理删除）。
+
+**Q: 报错 `Connection error` 或 `APIConnectionError`？**
+> 1. 检查 LM Studio Server 是否已启动
+> 2. 确认端口为 1234
+> 3. 代码已内置绕过系统代理逻辑，如仍有问题检查 VPN 设置
+
+**Q: 上传大文件卡死？**
+> Embedding 运行在 CPU 上，大文件建议切分后上传，或在代码中启用 GPU 加速。
+
+---
+
+## 🗓️ 未来规划
+
+- [ ] GPU 加速支持（Embedding CUDA 加速）
+- [ ] 表格深度解析（LlamaParse 优化复杂 PDF 表格）
+- [ ] 混合检索（BM25 关键词 + 向量语义）
+- [ ] 多用户支持
 
 ---
 

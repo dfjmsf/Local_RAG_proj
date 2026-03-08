@@ -2,6 +2,7 @@ import os
 import shutil
 import json
 import asyncio
+import threading
 from typing import List, Optional  # <--- 引入 Optional
 
 from fastapi import FastAPI, UploadFile, File
@@ -66,7 +67,8 @@ async def get_sessions():
 async def create_new_session():
     """创建一个新会话"""
     session_id = db.create_session(title="新对话")
-    return {"id": session_id, "title": "新对话"}
+    from datetime import datetime
+    return {"id": session_id, "title": "新对话", "created_at": datetime.now().isoformat()}
 
 
 @app.delete("/api/sessions/{session_id}")
@@ -140,36 +142,69 @@ async def chat_endpoint(request: ChatRequest):
                 yield json.dumps({"type": "sources", "data": serialized_docs}, ensure_ascii=False) + "\n"
                 await asyncio.sleep(0)
 
-                # 发送内容
+            # 发送内容
             if response:
-                is_thinking = False
+                # [修复] 使用 raw_buffer 累积全文，避免 <think> 标签被跨 chunk 切割
+                raw_buffer = ""  # 累积 LLM 的全部原始输出
 
-                for line in response.iter_lines():
-                    if line:
-                        decoded_line = line.decode('utf-8')
-                        if decoded_line.startswith("data: "):
-                            json_str = decoded_line[6:]
-                            if json_str.strip() == "[DONE]": break
-                            try:
-                                json_data = json.loads(json_str)
-                                content = json_data['choices'][0]['delta'].get('content', '')
-                                if content:
-                                    # 处理 DeepSeek 的 <think> 标签以便分别存储
-                                    if "<think>" in content: is_thinking = True
-                                    if "</think>" in content: is_thinking = False
+                # [修复] 使用 asyncio.Queue + 后台线程桥接同步 iter_lines()
+                # 避免同步阻塞事件循环
+                queue = asyncio.Queue()
+                loop = asyncio.get_event_loop()
 
-                                    # 累加内容
-                                    if is_thinking:
-                                        full_thought += content
-                                    else:
-                                        # 注意：这里需要剔除标签本身，为了简单存储，我们暂时全存
-                                        # 如果你想存纯净的，可以在这里做字符串清洗
-                                        full_content += content
+                def _stream_reader():
+                    """在后台线程中读取同步流，通过 queue 传递给异步 generator"""
+                    try:
+                        for line in response.iter_lines():
+                            if line:
+                                loop.call_soon_threadsafe(queue.put_nowait, line)
+                    except Exception as e:
+                        loop.call_soon_threadsafe(queue.put_nowait, e)
+                    finally:
+                        loop.call_soon_threadsafe(queue.put_nowait, None)  # 哨兵值，表示结束
 
-                                    yield json.dumps({"type": "content", "data": content}, ensure_ascii=False) + "\n"
-                                    await asyncio.sleep(0)
-                            except Exception:
-                                continue
+                reader_thread = threading.Thread(target=_stream_reader, daemon=True)
+                reader_thread.start()
+
+                while True:
+                    item = await queue.get()
+                    if item is None:
+                        break  # 流读取完毕
+                    if isinstance(item, Exception):
+                        print(f"Stream Error: {item}")
+                        break
+
+                    decoded_line = item.decode('utf-8')
+                    if decoded_line.startswith("data: "):
+                        json_str = decoded_line[6:]
+                        if json_str.strip() == "[DONE]": break
+                        try:
+                            json_data = json.loads(json_str)
+                            content = json_data['choices'][0]['delta'].get('content', '')
+                            if content:
+                                # 累积原始输出到 buffer
+                                raw_buffer += content
+
+                                # [修复] 通过全局 buffer 判断 think 标签状态
+                                # 提取结束标签后的正文内容，和标签内的思考内容
+                                if "</think>" in raw_buffer:
+                                    # 标签已闭合：提取思考和正文
+                                    parts = raw_buffer.split("</think>", 1)
+                                    full_thought = parts[0].replace("<think>", "")
+                                    full_content = parts[1]
+                                elif "<think>" in raw_buffer:
+                                    # 标签未闭合：全部是思考内容
+                                    full_thought = raw_buffer.replace("<think>", "")
+                                    full_content = ""
+                                else:
+                                    # 无标签：全部是正文
+                                    full_thought = ""
+                                    full_content = raw_buffer
+
+                                yield json.dumps({"type": "content", "data": content}, ensure_ascii=False) + "\n"
+                                await asyncio.sleep(0)
+                        except Exception:
+                            continue
 
                 # [新增] 2. 流式结束后，把 AI 的回答存入数据库
                 if request.session_id:

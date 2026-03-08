@@ -1,19 +1,29 @@
+# LLM SDK
 openai>=1.0.0
+requests
 
-python-dotenv
+# Web Framework
+fastapi>=0.100.0
+uvicorn>=0.20.0
+python-multipart
 
+# LangChain
+langchain>=0.2.0
 langchain-community>=0.2.0
 langchain-text-splitters>=0.2.0
-langchain>=0.2.0
+langchain-huggingface>=0.0.3
+langchain-chroma==1.0.0
 
+# Vector DB & Embeddings
 chromadb>=0.5.0
-
 sentence-transformers>=3.0.0
 
+# Document Loaders
 pypdf>=4.2.0
 
-langchain-huggingface>=0.0.3
+# Frontend
+streamlit>=0.0.3
+chainlit
 
-langchain-chroma == 1.0.0
-
-streamlit >= 0.0.3
+# Utility
+python-dotenv
