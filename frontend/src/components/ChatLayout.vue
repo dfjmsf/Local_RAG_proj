@@ -358,7 +358,7 @@ const customRequest = async ({ file, onFinish, onError }: any) => {
                       <div v-if="mode === 'flash'" class="w-3 h-3 rounded-full bg-orange-500 shadow-[0_0_8px_rgba(249,115,22,0.6)]"></div>
                     </div>
                     <p class="text-xs text-gray-500 pl-10 leading-relaxed">
-                      仅使用向量检索 (Top-3)。<br>速度最快，适合简单查询。
+                      向量+BM25 混合检索 (Top-5)。<br>速度快，适合简单查询。
                     </p>
                   </div>
 

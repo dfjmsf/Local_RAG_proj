@@ -12,7 +12,7 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))# 获取当前脚本所在的绝对路径，确保在任何地方运行都不会找不到文件
-DOCS_DIR = os.path.join(CURRENT_DIR, '../data/docs')# 数据的输入目录
+DOCS_DIR = os.path.join(CURRENT_DIR, '../data/docs')# 数据的输入目录 
 DB_DIR = os.path.join(CURRENT_DIR, "../data/chroma_db")
 LOADER_MAPPING = {
     ".pdf": (PyPDFLoader, {}),

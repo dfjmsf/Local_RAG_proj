@@ -20,6 +20,11 @@ sentence-transformers>=3.0.0
 
 # Document Loaders
 pypdf>=4.2.0
+docx2txt
+
+# Hybrid Search (BM25)
+rank-bm25
+jieba
 
 # Frontend
 streamlit>=0.0.3
